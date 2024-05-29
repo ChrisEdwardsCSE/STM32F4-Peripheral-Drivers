@@ -15,9 +15,8 @@
  * @param mode	 : the mode
  */
 static void myhal_gpio_conf_pin_mode(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t mode) {
+	// MODER 32 bits, 2 bits for mode of each pin per port
 	GPIOx->MODER |= (mode << (2 * pin));
-	// b/c MODER register is 32 bits, 2 bits for the mode conf of each pin per port. so multiply pin
-	// by 2 to get to the rigth place and input mode there (mode is 2 bits) defined in .h file
 }
 
 /**
