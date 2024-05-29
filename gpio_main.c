@@ -91,40 +91,19 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  /**
-   * so we wanted to just set one of ADC's reigsters(?) CR1 just to test
-   * something out. however, ADC was not enabled at all, we needed to first
-   * enable the clock which enables ADC itself. so we do that by getting
-   * RCC typedef which holds all RCC's registers, and then we access the
-   * APB1ENR register whcih is like the clock stuff for APB which is the bus
-   * that ADC is on (we found from arm interface thing). and then we set the
-   * ADC enable bit of the bus so now ADC's clock is enabled. now we can
-   * play with ADC all we want*/
-  // get RCC peripheral (RCC_TypeDef) to access the APB2ENR
-  // register (the clock enabler for peripherals on APB2 bus) which then has
-  // a bit for enabling clock of ADC1
 
   /* ****** REMEMBER the lines below are possible because we configured the system clock,
    * configured the HAL and initialized/configured the GPIO ports for the LED
    */
-  // get RCC - clock controller
+ 
+  // enable GPIOA's clock
   RCC_TypeDef *pRCC;
   pRCC = RCC;
-  // enable clock for ADC1 on APB2 bus
-  pRCC->APB2ENR |= (1<<8);
-
-  // get ADC1 peripheral
-  ADC_TypeDef *pADC;
-  pADC = ADC1;
-  // set some value to prove we can now that ADC has its clock enabled
-  pADC->CR1 = 0x55;
-
+  pRCC->AHB1ENR |= (1 << 0);
+ 
   // get GPIOA
   GPIO_TypeDef *pGPIO;
-  pGPIO = GPIOA;
-  // enable GPIOA peripheral's clock through AHB1 clock enable register on RCC
-  pRCC->AHB1ENR |= (1 << 0);
-
+  pGPIO = GPIOA;  
 
   // toggle the LED real quick
   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
