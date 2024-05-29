@@ -58,9 +58,7 @@ typedef enum {
 	INT_RISING_FALLING_EDGE // either edge
 } int_edge_sel_t;
 
-/**
- * Static helper functions *** don't want accessed outside of below functions
- */
+/*********** Helper functions ***********/
 
 /**
  * @Configure pull up or pull down resistors
