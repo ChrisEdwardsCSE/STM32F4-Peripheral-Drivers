@@ -5,14 +5,9 @@
  *      Author: ched
  */
 
-
-/**
- * Static helper functions
- */
 #include "stm32f446xx_gpio_driver.h"
 
-/* ****************** GPIO ******************** */
-
+/*********** Helper functions ***********/
 /**
  * Configures mode of pin : input, output, alt, or analog mode
  * @param *GPIOx : GPIO Port Base Address
@@ -27,8 +22,6 @@ static void myhal_gpio_conf_pin_mode(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t
 
 /**
  * Configures output type of pin
- * @param *GPIOx :
- *
  * @param o_type : output type (0: push pull. 1: open drain)
  */
 static void myhal_gpio_conf_pin_otype(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t o_type) {
@@ -41,8 +34,6 @@ static void myhal_gpio_conf_pin_otype(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_
 
 /**
  * Configure speed of pin
- *
- *
  * @param speed	: speed value (low, medium, high, very high)
  */
 static void myhal_gpio_conf_pin_speed(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t speed) {
@@ -51,8 +42,6 @@ static void myhal_gpio_conf_pin_speed(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_
 
 /**
  * @Configure pull up or pull down resistors
- *
- *
  * @param pupd : pull up or pull down
  */
 void myhal_gpio_conf_pin_pupd(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t pupd) {
@@ -61,8 +50,6 @@ void myhal_gpio_conf_pin_pupd(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t pupd) 
 
 /**
  * Configure alternate function for given pin
- *
- *
  * @param altfunc : the alternate function
  */
 void myhal_gpio_conf_pin_af(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t altfunc) {
@@ -104,10 +91,10 @@ void myhal_gpio_init(GPIO_TypeDef *GPIOx, gpio_conf_struct *gpio_conf)
 	myhal_gpio_conf_pin_af(GPIOx, gpio_conf->pin, gpio_conf->altfunc);
 }
 
-/* ****************** INTERRUPTS ********************** */
+/*********** INTERRUPTS ***********/
+
 /**
  * Configures interrupt for pin
- *
  * @param edge_sel : edge selection value
  */
 void myhal_gpio_conf_interrupt(uint16_t pin, int_edge_sel_t edge_sel) {
@@ -128,12 +115,11 @@ void myhal_gpio_conf_interrupt(uint16_t pin, int_edge_sel_t edge_sel) {
 
 /**
  * Enables interrupt for pin and IRQ number
- *
  * @param irq_no : irq number on NVIC to be enabled
  */
 void myhal_gpio_enable_interrupt(uint16_t pin, IRQn_Type irq_no)
 {
-	/* ISSUE HERE!!!! setting the IMR bit also sets PR bit, not sure who to get around wtvr*/
+	/* FIX - setting IMR bit sometimes sets PR bit immediately causing interrupt */
 	EXTI->IMR |= (1 << pin); // enables pin on EXTI line
 	NVIC_EnableIRQ(irq_no); // enables interrupt reception for pin on NVIC
 }
