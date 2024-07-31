@@ -5,18 +5,16 @@
  *      Author: ched
  */
 
-#include <stdint.h>
 #include "spi-driver.h"
-#include "stm32f4xx_hal_gpio.h"
-
 /**
  * Initialize clocks for using SPI1 on PB3,4,5 abstract it later
  */
 void init_clocks(void)
 {
-	RCC->AHB1ENR |= (1 << 1); // enable GPIOB
+	RCC->AHB1ENR |= (1 << 0); // enable GPIOA
 
-	__HAL_RCC_SPI2_CLK_ENABLE(); // enable SPI1
+	MYHAL_RCC_SPI1_CLK_ENABLE(); // enable SPI1
+
 }
 
 void init_gpio(void)
@@ -24,24 +22,24 @@ void init_gpio(void)
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 
 	/**
-	 * PB12 - SPI2 NSS - Not sure if need it, gonna use HW slave mngmt so
-	 * PB13 - SPI2 Clock
-	 * PB14 - SPI2 MISO
-	 * PB15 - SPI2 MOSI
+	 * PA5 - SPI2 Clock
+	 * PA6 - SPI2 MISO
+	 * PA7 - SPI2 MOSI
 	 */
-	GPIO_InitStruct.Pin = 12 | 13 | 14 | 15;
+	GPIO_InitStruct.Pin = 5 | 6 | 7;
 	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-	GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
-	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-	// PB12 really just used as a GPIO output pin, but we can control it with the NSS bit if we
+	// PA8 really just used as a GPIO output pin, but we can control it with the NSS bit if we
 	// enable SSOE (SS output enable). NSS bit = 1, it's just writing 1 to output of PB12
-//	GPIO_InitStruct.Pin = 12;
-//	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-//	GPIO_InitStruct.Pull = GPIO_NOPULL;
-//	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = 8;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 }
 
 /**
@@ -54,6 +52,7 @@ static void myhal_spi_conf_master_mode(SPI_TypeDef *SPIx, uint32_t master_mode)
 	if (master_mode)
 	{
 		SPIx->CR1 |= SPI_REG_CR1_MSTR;
+		SPIx->CR1 |= SPI_REG_CR1_SSI;
 	}
 	else
 	{
@@ -82,7 +81,7 @@ static void myhal_spi_conf_dir(SPI_TypeDef *SPIx, uint32_t dir)
  */
 static void myhal_spi_endianness(SPI_TypeDef *SPIx, uint8_t lsbfirst)
 {
-	if (lsb)
+	if (lsbfirst)
 	{
 		SPIx->CR1 |= (1 << 7); // LSB first
 	}
@@ -144,6 +143,7 @@ static void myhal_spi_conf_phase_polarity(SPI_TypeDef *SPIx, uint32_t phase, uin
 
 /**
  * Configure MCU for SSM or HSM. Use HW for now
+ * If you want NSS you gotta do the SSOE stuff yourself
  */
 static void myhal_spi_conf_ssm(SPI_TypeDef *SPIx, uint8_t ssm_enable)
 {
@@ -154,14 +154,45 @@ static void myhal_spi_conf_ssm(SPI_TypeDef *SPIx, uint8_t ssm_enable)
 	else
 	{
 		SPIx->CR1 &= ~(SPI_REG_CR1_SSM);
-		SPIx->CR2 |= SPI_REG_CR2_SSOE; // enable NSS pin
+//		SPIx->CR2 |= SPI_REG_CR2_SSOE; // enable NSS pin
 	}
+}
+
+/**
+ * Enable SPI device
+ */
+static void myhal_spi_enable(SPI_TypeDef *SPIx)
+{
+	if (!(SPIx->CR1 & SPI_REG_CR1_SPE))
+	{
+		SPIx->CR1 |= SPI_REG_CR1_SPE;
+	}
+}
+
+/**
+ * Disable SPI device
+ */
+static void myhal_spi_disable(SPI_TypeDef *SPIx)
+{
+	SPIx->CR1 &= ~SPI_REG_CR1_SPE;
 }
 
 /**
  * Initialize SPI device
  * @param	spi_handler - base address of SPI peripheral
  */
+//void myhal_spi_init (spi_handler_t *spi_handler)
+//{
+//	myhal_spi_conf_master_mode(spi_handler->Instance, spi_handler->Init.Mode);
+//	myhal_spi_conf_dir(spi_handler->Instance, spi_handler->Init.Direction);
+//	myhal_spi_endianness(spi_handler->Instance, spi_handler->Init.FirstBit);
+//	myhal_spi_conf_size(spi_handler->Instance, spi_handler->Init.DataSize);
+//	myhal_spi_baud(spi_handler->Instance, spi_handler->Init.Prescaler);
+//	myhal_spi_conf_phase_polarity(spi_handler->Instance, spi_handler->Init.CLKPhase, spi_handler->Init.CLKPolarity);
+//	myhal_spi_conf_ssm(spi_handler->Instance, spi_handler->Init.NSS);
+//	// also need to set SSOE not sure where should be done tho
+//}
+
 void myhal_spi_init (spi_handler_t *spi_handler)
 {
 	myhal_spi_conf_master_mode(spi_handler->Instance, spi_handler->Init.Mode);
@@ -174,6 +205,67 @@ void myhal_spi_init (spi_handler_t *spi_handler)
 	// also need to set SSOE not sure where should be done tho
 }
 
+
+uint8_t spi_tx(spi_handler_t *spi_handler, uint8_t tx_data)
+{
+	myhal_spi_enable(spi_handler->Instance);
+
+	spi_handler->Instance->DR = tx_data;
+	int c = 0;
+
+	// wait until SPI not busy and TX empty
+	while( ((spi_handler->Instance->SR)&(1u << 7)) && (!((spi_handler->Instance->SR)&(1u << 0))) ){
+		c++;
+	}
+
+	uint8_t rx_data = (uint8_t)spi_handler->Instance->DR;
+
+	return rx_data;
+}
+
+uint8_t spi_txrx(spi_handler_t* hspi, uint8_t* pTxData, uint8_t* pRxData)
+{
+	  /* Set the transaction information */
+	  hspi->pRxBuffPtr  = (uint8_t *)pRxData;
+//	  hspi->RxXferCount = Size;
+//	  hspi->RxXferSize  = Size;
+	  hspi->pTxBuffPtr  = (uint8_t *)pTxData;
+//	  hspi->TxXferCount = Size;
+//	  hspi->TxXferSize  = Size;
+
+	  /* Transmit and Receive data in 8 Bit mode */
+	  *((__IO uint8_t *)&hspi->Instance->DR) = (*hspi->pTxBuffPtr);
+//	  hspi->pTxBuffPtr += sizeof(uint8_t);
+//	  hspi->TxXferCount--;
+
+	  /* Wait until RXNE flag is reset */
+	  while (!(__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_RXNE)));
+	  HAL_GPIO_WritePin(GPIOA, 5, 1);
+	  HAL_Delay(5000);
+		(*(uint8_t *)hspi->pRxBuffPtr) = hspi->Instance->DR;
+//		hspi->pRxBuffPtr++;
+//		hspi->RxXferCount--;
+
+//	}
+}
+
+uint8_t spi_rx(spi_handler_t *spi_handler)
+{
+	myhal_spi_enable(spi_handler->Instance);
+
+//	uint8_t rx_data = (uint8_t)spi_handler->Instance->DR;
+
+	// wait until SPI not busy and RX buffer not empty
+//	while( ((spi_handler->Instance->SR)&(1u << 7)) || (!((spi_handler->Instance->SR)&(1u << 0))) );
+	while (!(__HAL_SPI_GET_FLAG(spi_handler, SPI_FLAG_RXNE)));
+	/* read the received data */
+	uint8_t rx_data = *(__IO uint8_t *)&spi_handler->Instance->DR;
+	return rx_data;
+}
+
+
+
+
 /**
  * Enable TXE Interrupt
  */
@@ -181,6 +273,30 @@ static void myhal_spi_enable_txe_int(SPI_TypeDef *SPIx)
 {
 	SPIx->CR2 |= SPI_REG_CR2_TXEIE_ENABLE;
 }
+
+/**
+ * Master TX
+ *
+ * @param	buf : poitner to TX buf
+ * @param	len : length of TX data
+ */
+void myhal_spi_master_tx (spi_handler_t *spi_handler, uint8_t *tx_buf, uint32_t len)
+{
+	spi_handler->pTxBuffPtr = tx_buf;
+	spi_handler->TxXferSz = len;
+	spi_handler->TxXferCount = len; // decrements as data transmitted
+
+
+
+	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
+
+	myhal_spi_enable(spi_handler->Instance);
+
+	/* TXE interrupt triggered immediately after enabled b/c we've already TX'd all the data
+	 * out of the DR */
+	myhal_spi_enable_txe_int(spi_handler->Instance); // enables TX empty interrupt when TX done
+}
+
 
 /*
  * Enable RXNE Interrupt
@@ -215,21 +331,9 @@ static void myhal_spi_disable_rxne_int(SPI_TypeDef *SPIx)
 /**
  * Enable SPI device AFTER configuration settings of control registers
  */
-static void myhal_spi_enable(SPI_TypeDef *SPIx)
-{
-	if (!(SPIx->CR1 & SPI_REG_CR1_SPE))
-	{
-		SPIx->CR1 |= SPI_REG_CR1_SPE;
-	}
-}
 
-/**
- * Disable SPI device
- */
-static void myhal_spi_disable(SPI_TypeDef *SPIx)
-{
-	SPIx->CR1 &= ~SPI_REG_CR1_SPE;
-}
+
+
 
 
 /**
@@ -305,28 +409,7 @@ static void myhal_spi_rx_close_int(spi_handler_t *hspi)
 
 
 
-/**
- * Master TX
- *
- * @param	buf : poitner to TX buf
- * @param	len : length of TX data
- */
-void myhal_spi_master_tx (spi_handler_t *spi_handler, uint8_t *tx_buf, uint32_t len)
-{
-	spi_handler->pTXBuffPtr = tx_buf;
-	spi_handler->TXXferSz = len;
-	spi_handler->TXXferCount = len; // decrements as data transmitted
 
-
-
-	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
-
-	myhal_spi_enable(spi_handler->Instance);
-
-	/* TXE interrupt triggered immediately after enabled b/c we've already TX'd all the data
-	 * out of the DR */
-	myhal_spi_enable_txe_int(spi_handler->Instance); // enables TX empty interrupt when TX done
-}
 
 /**
  * Master RX
@@ -336,14 +419,14 @@ void myhal_spi_master_rx (spi_handler_t *spi_handler, uint8_t *rx_buf, uint32_t 
 {
 	uint16_t val;
 	/* master first has to TX dummy values to slave to produce clock before actual RX */
-	spi_handler->pTXBuffPtr = rx_buf;
-	spi_handler->TXXferCount = len;
-	spi_handler->TXXferSz = len;
+	spi_handler->pTxBuffPtr = rx_buf;
+	spi_handler->TxXferCount = len;
+	spi_handler->TxXferSz = len;
 
 	/* actually begin the RXing */
-	spi_handler->pRXBuffPtr = rx_buf;
-	spi_handler->RXXferCount = len;
-	spi_handler->RXXferSz = len;
+	spi_handler->pRxBuffPtr = rx_buf;
+	spi_handler->RxXferCount = len;
+	spi_handler->RxXferSz = len;
 
 	spi_handler->State = MYHAL_SPI_STATE_BUSY_RX;
 
@@ -367,14 +450,14 @@ void myhal_spi_slave_tx (spi_handler_t *spi_handler, uint8_t *tx_buf, uint32_t l
 
 	// Slave needs Master to TX, so enable slave RX
 	// initialize TX
-	spi_handler->pTXBuffPtr = tx_buf;
-	spi_handler->TXXferCount = len;
-	spi_handler->TXXferSz = len;
+	spi_handler->pTxBuffPtr = tx_buf;
+	spi_handler->TxXferCount = len;
+	spi_handler->TxXferSz = len;
 
 	/* Dummy RX */
-	spi_handler->pRXBuffPtr = tx_buf;
-	spi_handler->RXXferCount = len;
-	spi_handler->RXXferSz = len;
+	spi_handler->pRxBuffPtr = tx_buf;
+	spi_handler->RxXferCount = len;
+	spi_handler->RxXferSz = len;
 
 	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
 
@@ -396,9 +479,9 @@ void myhal_spi_slave_rx (spi_handler_t *spi_handler, uint8_t *rx_buf, uint32_t l
 {
 	/* no dummy TX b/c slave receives first, slave TX is unnecessary */
 
-	spi_handler->pRXBuffPtr = rx_buf;
-	spi_handler->RXXferCount = len;
-	spi_handler->RXXferSz = len;
+	spi_handler->pRxBuffPtr = rx_buf;
+	spi_handler->RxXferCount = len;
+	spi_handler->RxXferSz = len;
 
 	spi_handler->State = MYHAL_SPI_STATE_BUSY_RX;
 
@@ -454,19 +537,19 @@ void myhal_spi_handle_tx_int(spi_handler_t *hspi)
 	if (hspi->Init.DataSize == SPI_8BIT_DF_ENABLE)
 	{
 		// read TX Buf and increment forward in it to next byte
-		hspi->Instance->DR = (*hspi->pTXBuffPtr++);
+		hspi->Instance->DR = (*hspi->pTxBuffPtr++);
 		// decrement count by 1 byte
-		hspi->TXXferCount--;
+		hspi->TxXferCount--;
 	// TX in 16-bit mode
 	}
 	else
 	{
-		hspi->Instance->DR = *( (uint16_t*)hspi->pTXBuffPtr );
-		hspi->pTXBuffPtr+=2;
-		hspi->TXXferCount-=2;
+		hspi->Instance->DR = *( (uint16_t*)hspi->pTxBuffPtr );
+		hspi->pTxBuffPtr+=2;
+		hspi->TxXferCount-=2;
 	}
 	// No more data to TX
-	if (hspi->TXXferCount == 0)
+	if (hspi->TxXferCount == 0)
 	{
 		myhal_spi_tx_close_int(hspi);
 	}
@@ -483,19 +566,20 @@ void myhal_spi_handle_rx_int(spi_handler_t *hspi)
 	if (hspi->Init.DataSize == SPI_8BIT_DF_ENABLE)
 	{
 		// read DR value, put into
-		(*hspi->pRXBuffPtr++) = hspi->Instance->DR;
+		(*hspi->pRxBuffPtr++) = hspi->Instance->DR;
 
-		hspi->RXXferCount--;
+		hspi->RxXferCount--;
 	}
 	else
 	{
-		*(hspi->pRXBuffPtr) = hspi->Instance->DR;
-		hspi->pRXBuffPtr+=2;
-		hspi->RXXferCount-=2;
+		*(hspi->pRxBuffPtr) = hspi->Instance->DR;
+		hspi->pRxBuffPtr+=2;
+		hspi->RxXferCount-=2;
 	}
 	// no more data to read
-	if (hspi->RXXferCount == 0)
+	if (hspi->RxXferCount == 0)
 	{
 		myhal_spi_rx_close_int(hspi);
 	}
 }
+
