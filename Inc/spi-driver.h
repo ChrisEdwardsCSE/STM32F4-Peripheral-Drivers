@@ -1,14 +1,24 @@
 /*
  * spi-driver.h
  *
- *  Created on: Jul 23, 2024
+ *  Created on: Jul 25, 2024
  *      Author: ched
  */
-#include "stm32f446xx.h"
 
-#ifndef STM32F4XX_HAL_DRIVER_INC_SPI_DRIVER_H_
-#define STM32F4XX_HAL_DRIVER_INC_SPI_DRIVER_H_
+#ifndef INC_SPI_DRIVER_H_
+#define INC_SPI_DRIVER_H_
 
+#include "stm32f4xx_hal.h"
+///*
+// * spi-driver.h
+// *
+// *  Created on: Jul 23, 2024
+// *      Author: ched
+// */
+//#include "stm32f446xx.h"
+//
+//#ifndef STM32F4XX_HAL_DRIVER_INC_SPI_DRIVER_H_
+//#define STM32F4XX_HAL_DRIVER_INC_SPI_DRIVER_H_
 
 
 /* SPI_CR1 Bit definitions */
@@ -78,13 +88,11 @@
 #define SPI_IS_BUSY 				1
 #define SPI_IS_NOT_BUSY				0
 
-#define __HAL_RCC_SPI1_CLK_ENABLE()	(RCC->APB2ENR |= (1 << 12))
-#define __HAL_RCC_SPI2_CLK_ENABLE()	(RCC->APB1ENR |= (1 << 14))
-#define __HAL_RCC_SPI3_CLK_ENABLE()	(RCC->APB1ENR |= (1 << 15))
-#define __HAL_RCC_SPI4_CLK_ENABLE() (RCC->APB2ENR |= (1 << 13))
+#define MYHAL_RCC_SPI1_CLK_ENABLE()	(RCC->APB2ENR |= (1 << 12))
+#define MYHAL_RCC_SPI2_CLK_ENABLE()	(RCC->APB1ENR |= (1 << 14))
+#define MYHAL_RCC_SPI3_CLK_ENABLE()	(RCC->APB1ENR |= (1 << 15))
+#define MYHAL_RCC_SPI4_CLK_ENABLE() (RCC->APB2ENR |= (1 << 13))
 
-#define RESET 						0
-#define SET							!RESET
 
 /* SPI State Struct */
 typedef enum
@@ -116,15 +124,23 @@ typedef struct __spi_handler_t
 {
 	SPI_TypeDef		*Instance;		// SPI peripheral base address -  the actual peripheral
 	spi_init_t		Init;			// SPI configuration params
-	uint8_t			*pTXBuffPtr;	// pointer to TX buffer; a global, in-system buffer
-	uint16_t		TXXferSz;		// TX transfer size
-	uint16_t		TXXferCount;	// TX transfer count
-	uint8_t			*pRXBuffPtr;	// pointer to RX buffer
-	uint16_t		RXXferSz;		// RX transfer size
-	uint16_t		RXXferCount;	// RX transfer counter
+	uint8_t			*pTxBuffPtr;	// pointer to TX buffer; a global, in-system buffer
+	uint16_t		TxXferSz;		// TX transfer size
+	uint16_t		TxXferCount;	// TX transfer count
+	uint8_t			*pRxBuffPtr;	// pointer to RX buffer
+	uint16_t		RxXferSz;		// RX transfer size
+	uint16_t		RxXferCount;	// RX transfer counter
 	myhal_spi_state_t	State;		// state of peripheral, must be ready
 } spi_handler_t;
 
+
+
+void init_gpio(void);
+
+void init_clocks(void);
+
+uint8_t spi_tx(spi_handler_t *spi_handler, uint8_t tx_data);
+uint8_t spi_rx(spi_handler_t *spi_handler);
 /**
  * Initialize SPI device
  * @param	spi_handler - base address of SPI peripheral
@@ -182,4 +198,5 @@ void myhal_spi_handle_tx_int(spi_handler_t *hspi);
  */
 void myhal_spi_handle_rx_int(spi_handler_t *hspi);
 
-#endif /* STM32F4XX_HAL_DRIVER_INC_SPI_DRIVER_H_ */
+
+#endif /* INC_SPI_DRIVER_H_ */
