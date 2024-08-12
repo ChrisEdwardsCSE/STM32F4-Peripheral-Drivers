@@ -1,8 +1,8 @@
 /*
  * myhal_spi_driver.c
  *
- *  Created on: May 20, 2024
- *      Author: ched
+ *  Created on: Jul 25, 2024
+ *      Author: Christopher Edwards
  */
 
 #include "spi-driver.h"
@@ -256,7 +256,7 @@ static void __SPI_INT_RXNE_Close(spi_handler_t *spi_handler)
  *
  * @param	spi_handler - base address of SPI peripheral
  */
-void SPI_Init (spi_handler_t *spi_handler)
+void SPI_Init(spi_handler_t *spi_handler)
 {
 	__SPI_Conf_Mode(spi_handler->Instance, spi_handler->Init.Mode);
 	__SPI_Conf_Dir(spi_handler->Instance, spi_handler->Init.Direction);
