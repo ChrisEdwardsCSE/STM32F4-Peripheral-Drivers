@@ -6,40 +6,39 @@
  */
 
 #include "spi-driver.h"
+
 /**
- * Initialize clocks for using SPI1 on PB3,4,5 abstract it later
+ * Initialize GPIOA and SPI1 Clocks
  */
-void init_clocks(void)
+void __SPI_Clock_Init(void)
 {
 	RCC->AHB1ENR |= (1 << 0); // enable GPIOA
-
 	MYHAL_RCC_SPI1_CLK_ENABLE(); // enable SPI1
-
 }
 
-void init_gpio(void)
+/**
+ * Initialize GPIO Pins for SPI1 PA5-PA7. PA4 initialized in __SPI_Conf_SSM
+ */
+void __SPI_GPIO_Init(void)
 {
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
 	/**
 	 * PA5 - SPI2 Clock
 	 * PA6 - SPI2 MISO
 	 * PA7 - SPI2 MOSI
 	 */
-	GPIO_InitStruct.Pin = 5 | 6 | 7;
-	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-	GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+	GPIOA->MODER |= (0b10 << 5 * 2) | (0b10 << 6 * 2) | (0b10 << 7 * 2); // AF Mode
+	GPIOA->OTYPER &= ~((1 << 5) | (1 << 6) | (1 << 7)); // Push Pull Output
+	GPIOA->PUPDR &= ~((0b11 << 5 * 2) | (0b11 << 6 * 2) | (0b11 << 7 * 2)); // No Pull
+	GPIOA->OSPEEDR |= (0b11 << 5 * 2) | (0b11 << 6 * 2) | (0b11 << 7 * 2); // High Speed
+	GPIOA->AFR[0] |= (0b0101 << 5 * 4) | (0b0101 << 6 * 4) | (0b0101 << 7 * 4); // Alt Func 5
+}
 
-	// PA8 really just used as a GPIO output pin, but we can control it with the NSS bit if we
-	// enable SSOE (SS output enable). NSS bit = 1, it's just writing 1 to output of PB12
-	GPIO_InitStruct.Pin = 8;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+/**
+ * Enable SPI1 NVIC Interrupt
+ */
+static void __NVIC_SPI1_Enable(void)
+{
+	NVIC->ISER[1] |= (1 << 3);
 }
 
 /**
@@ -47,12 +46,11 @@ void init_gpio(void)
  *
  * @param master_mode - 1 for master, 0 for slave
  */
-static void myhal_spi_conf_master_mode(SPI_TypeDef *SPIx, uint32_t master_mode)
+static void __SPI_Conf_Mode(SPI_TypeDef *SPIx, uint32_t master_mode)
 {
 	if (master_mode)
 	{
 		SPIx->CR1 |= SPI_REG_CR1_MSTR;
-		SPIx->CR1 |= SPI_REG_CR1_SSI;
 	}
 	else
 	{
@@ -62,9 +60,10 @@ static void myhal_spi_conf_master_mode(SPI_TypeDef *SPIx, uint32_t master_mode)
 
 /**
  * Configure direction of SPI
- * Either Full (0) or Half Duplex (1)
+ *
+ * @param dir - Either Full (0) or Half Duplex (1)
  */
-static void myhal_spi_conf_dir(SPI_TypeDef *SPIx, uint32_t dir)
+static void __SPI_Conf_Dir(SPI_TypeDef *SPIx, uint32_t dir)
 {
 	if (dir)
 	{
@@ -77,9 +76,11 @@ static void myhal_spi_conf_dir(SPI_TypeDef *SPIx, uint32_t dir)
 }
 
 /**
- * MSB first (0) or LSB first (1) (eeprom does MSB)
+ * Configure Endianness of data
+ *
+ * @param lsbfirst - MSB first (0) or LSB first (1)
  */
-static void myhal_spi_endianness(SPI_TypeDef *SPIx, uint8_t lsbfirst)
+static void __SPI_Conf_Endian(SPI_TypeDef *SPIx, uint8_t lsbfirst)
 {
 	if (lsbfirst)
 	{
@@ -92,9 +93,11 @@ static void myhal_spi_endianness(SPI_TypeDef *SPIx, uint8_t lsbfirst)
 }
 
 /**
- * Configure SPI datasize - 16 bit (1) or 8 bit (0)
+ * Configure SPI data size
+ *
+ * @param datasize_16 -  16 bit (1) or 8 bit (0)
  */
-static void myhal_spi_conf_size(SPI_TypeDef *SPIx, uint32_t datasize_16)
+static void __SPI_Conf_DataSize(SPI_TypeDef *SPIx, uint32_t datasize_16)
 {
 	if (datasize_16)
 	{
@@ -108,20 +111,19 @@ static void myhal_spi_conf_size(SPI_TypeDef *SPIx, uint32_t datasize_16)
 
 /**
  * Configures Baud Rate
- * @param baud - 3 bit baud rate
  *
- * Note it should probably be very low like 1MHz max since we're using wires just use 111 to be safe ig ?
+ * @param baud - 3 bit baud rate
  */
-static void myhal_spi_baud(SPI_TypeDef *SPIx, uint8_t baud)
+static void __SPI_Conf_BaudRate(SPI_TypeDef *SPIx, uint8_t baud)
 {
 	baud = baud & (0b00000111); // ensure 3 bits
 	SPIx->CR1 |= (baud << 3);
 }
 
 /**
- * Configure Polarity and Phase (think 0 0 for eeprom)
+ * Configure Polarity and Phase
  */
-static void myhal_spi_conf_phase_polarity(SPI_TypeDef *SPIx, uint32_t phase, uint32_t polarity)
+static void __SPI_Conf_Phase_Polarity(SPI_TypeDef *SPIx, uint32_t phase, uint32_t polarity)
 {
 	if (phase)
 	{
@@ -142,26 +144,40 @@ static void myhal_spi_conf_phase_polarity(SPI_TypeDef *SPIx, uint32_t phase, uin
 }
 
 /**
- * Configure MCU for SSM or HSM. Use HW for now
- * If you want NSS you gotta do the SSOE stuff yourself
+ * Configure MCU for SSM or HSM. Configures NSS GPIO Pin
+ *
+ * @param ssm_enable - 1 for SW Slave Management, 0 for HW Slave Management
  */
-static void myhal_spi_conf_ssm(SPI_TypeDef *SPIx, uint8_t ssm_enable)
+static void __SPI_Conf_SSM(SPI_TypeDef *SPIx, uint8_t ssm_enable)
 {
 	if (ssm_enable)
 	{
 		SPIx->CR1 |= SPI_REG_CR1_SSM;
+
+		// PA4 GPIO Output Mode
+		GPIOA->MODER |= (0b01 << 4 * 2); // AF Mode
+		GPIOA->OTYPER &= ~(1 << 4); // Push Pull Output
+		GPIOA->PUPDR &= ~(0b11 << 4 * 2); // No Pull
+		GPIOA->OSPEEDR &= ~(0b11 << 4 * 2); // High Speed
 	}
 	else
 	{
 		SPIx->CR1 &= ~(SPI_REG_CR1_SSM);
-//		SPIx->CR2 |= SPI_REG_CR2_SSOE; // enable NSS pin
+		SPIx->CR2 |= SPI_REG_CR2_SSOE; // Enable NSS pin
+
+		// PA4 NSS Mode
+		GPIOA->MODER |= (0b10 << 4 * 2); // AF Mode
+		GPIOA->OTYPER &= ~(1 << 4); // Push Pull Output
+		GPIOA->PUPDR &= ~(0b11 << 4 * 2); // No Pull
+		GPIOA->OSPEEDR |= (0b11 << 4 * 2); // High Speed
+		GPIOA->AFR[0] |= (0b0101 << 4 * 4); // Alt Func 5
 	}
 }
 
 /**
  * Enable SPI device
  */
-static void myhal_spi_enable(SPI_TypeDef *SPIx)
+static void __SPI_Enable(SPI_TypeDef *SPIx)
 {
 	if (!(SPIx->CR1 & SPI_REG_CR1_SPE))
 	{
@@ -172,414 +188,388 @@ static void myhal_spi_enable(SPI_TypeDef *SPIx)
 /**
  * Disable SPI device
  */
-static void myhal_spi_disable(SPI_TypeDef *SPIx)
+static void __SPI_Disable(SPI_TypeDef *SPIx)
 {
 	SPIx->CR1 &= ~SPI_REG_CR1_SPE;
 }
 
-/**
- * Initialize SPI device
- * @param	spi_handler - base address of SPI peripheral
+/*
+ * Enables TXE Interrupt
  */
-//void myhal_spi_init (spi_handler_t *spi_handler)
-//{
-//	myhal_spi_conf_master_mode(spi_handler->Instance, spi_handler->Init.Mode);
-//	myhal_spi_conf_dir(spi_handler->Instance, spi_handler->Init.Direction);
-//	myhal_spi_endianness(spi_handler->Instance, spi_handler->Init.FirstBit);
-//	myhal_spi_conf_size(spi_handler->Instance, spi_handler->Init.DataSize);
-//	myhal_spi_baud(spi_handler->Instance, spi_handler->Init.Prescaler);
-//	myhal_spi_conf_phase_polarity(spi_handler->Instance, spi_handler->Init.CLKPhase, spi_handler->Init.CLKPolarity);
-//	myhal_spi_conf_ssm(spi_handler->Instance, spi_handler->Init.NSS);
-//	// also need to set SSOE not sure where should be done tho
-//}
-
-void myhal_spi_init (spi_handler_t *spi_handler)
-{
-	myhal_spi_conf_master_mode(spi_handler->Instance, spi_handler->Init.Mode);
-	myhal_spi_conf_dir(spi_handler->Instance, spi_handler->Init.Direction);
-	myhal_spi_endianness(spi_handler->Instance, spi_handler->Init.FirstBit);
-	myhal_spi_conf_size(spi_handler->Instance, spi_handler->Init.DataSize);
-	myhal_spi_baud(spi_handler->Instance, spi_handler->Init.Prescaler);
-	myhal_spi_conf_phase_polarity(spi_handler->Instance, spi_handler->Init.CLKPhase, spi_handler->Init.CLKPolarity);
-	myhal_spi_conf_ssm(spi_handler->Instance, spi_handler->Init.NSS);
-	// also need to set SSOE not sure where should be done tho
-}
-
-
-uint8_t spi_tx(spi_handler_t *spi_handler, uint8_t tx_data)
-{
-	myhal_spi_enable(spi_handler->Instance);
-
-	spi_handler->Instance->DR = tx_data;
-	int c = 0;
-
-	// wait until SPI not busy and TX empty
-	while( ((spi_handler->Instance->SR)&(1u << 7)) && (!((spi_handler->Instance->SR)&(1u << 0))) ){
-		c++;
-	}
-
-	uint8_t rx_data = (uint8_t)spi_handler->Instance->DR;
-
-	return rx_data;
-}
-
-uint8_t spi_txrx(spi_handler_t* hspi, uint8_t* pTxData, uint8_t* pRxData)
-{
-	  /* Set the transaction information */
-	  hspi->pRxBuffPtr  = (uint8_t *)pRxData;
-//	  hspi->RxXferCount = Size;
-//	  hspi->RxXferSize  = Size;
-	  hspi->pTxBuffPtr  = (uint8_t *)pTxData;
-//	  hspi->TxXferCount = Size;
-//	  hspi->TxXferSize  = Size;
-
-	  /* Transmit and Receive data in 8 Bit mode */
-	  *((__IO uint8_t *)&hspi->Instance->DR) = (*hspi->pTxBuffPtr);
-//	  hspi->pTxBuffPtr += sizeof(uint8_t);
-//	  hspi->TxXferCount--;
-
-	  /* Wait until RXNE flag is reset */
-	  while (!(__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_RXNE)));
-	  HAL_GPIO_WritePin(GPIOA, 5, 1);
-	  HAL_Delay(5000);
-		(*(uint8_t *)hspi->pRxBuffPtr) = hspi->Instance->DR;
-//		hspi->pRxBuffPtr++;
-//		hspi->RxXferCount--;
-
-//	}
-}
-
-uint8_t spi_rx(spi_handler_t *spi_handler)
-{
-	myhal_spi_enable(spi_handler->Instance);
-
-//	uint8_t rx_data = (uint8_t)spi_handler->Instance->DR;
-
-	// wait until SPI not busy and RX buffer not empty
-//	while( ((spi_handler->Instance->SR)&(1u << 7)) || (!((spi_handler->Instance->SR)&(1u << 0))) );
-	while (!(__HAL_SPI_GET_FLAG(spi_handler, SPI_FLAG_RXNE)));
-	/* read the received data */
-	uint8_t rx_data = *(__IO uint8_t *)&spi_handler->Instance->DR;
-	return rx_data;
-}
-
-
-
-
-/**
- * Enable TXE Interrupt
- */
-static void myhal_spi_enable_txe_int(SPI_TypeDef *SPIx)
+static void __SPI_INT_TXE_Enable(SPI_TypeDef *SPIx)
 {
 	SPIx->CR2 |= SPI_REG_CR2_TXEIE_ENABLE;
 }
 
-/**
- * Master TX
- *
- * @param	buf : poitner to TX buf
- * @param	len : length of TX data
- */
-void myhal_spi_master_tx (spi_handler_t *spi_handler, uint8_t *tx_buf, uint32_t len)
-{
-	spi_handler->pTxBuffPtr = tx_buf;
-	spi_handler->TxXferSz = len;
-	spi_handler->TxXferCount = len; // decrements as data transmitted
-
-
-
-	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
-
-	myhal_spi_enable(spi_handler->Instance);
-
-	/* TXE interrupt triggered immediately after enabled b/c we've already TX'd all the data
-	 * out of the DR */
-	myhal_spi_enable_txe_int(spi_handler->Instance); // enables TX empty interrupt when TX done
-}
-
-
 /*
- * Enable RXNE Interrupt
- *
+ * Enables RXNE Interrupt
  */
-static void myhal_spi_enable_rxne_int(SPI_TypeDef *SPIx)
+static void __SPI_INT_RXNE_Enable(SPI_TypeDef *SPIx)
 {
 	SPIx->CR2 |= SPI_REG_CR2_RXNEIE_ENABLE;
 }
 
 /**
- * DisableS TXE Interrupt: clears TXEIE bit
+ * Disables TXE Interrupt
  */
-static void myhal_spi_disable_txe_int(SPI_TypeDef *SPIx)
+static void __SPI_INT_TXE_Disable(SPI_TypeDef *SPIx)
 {
 	SPIx->CR2 &= ~SPI_REG_CR2_TXEIE_ENABLE;
 }
 
 /**
- * Disables RXNE Interrupt: clears RXNEIE bit
+ * Disables RXNE Interrupt
  */
-static void myhal_spi_disable_rxne_int(SPI_TypeDef *SPIx)
+static void __SPI_INT_RXNE_Disable(SPI_TypeDef *SPIx)
 {
 	SPIx->CR2 &= ~SPI_REG_CR2_RXNEIE_ENABLE;
 }
 
-
-
-
-/* ******************** HELPER FUNCTIONS ******************* */
-
 /**
- * Enable SPI device AFTER configuration settings of control registers
+ * Disables TXE interrupt. Puts SPI in ready state.
+ * Gets called once TX Buffer is empty
  */
-
-
-
-
-
-/**
- * Configure NSS pin through SW Slave Management when device in master mode
- * NSS not used when device in master mode, so this is obsolete..?
- * @param ssm - either 1 for SSM enabled, 0 for disabled
- */
-static void myhal_spi_conf_nss_master(SPI_TypeDef *SPIx, uint32_t ssm_enable)
+static void __SPI_INT_TXE_Close(spi_handler_t *spi_handler)
 {
-	if (ssm_enable)
-	{
-		SPIx->CR1 |= SPI_REG_CR1_SSM;
-		/* Make SSI bit to 1 to hold NSS high. Since we are not planning on using this
-		device in slave mode, this should stay high, so makes sense to pull high. */
-	}
-	else
-	{
-		SPIx->CR1 &= ~(SPI_REG_CR1_SSM);
-	}
+	while (spi_handler->State == MYHAL_SPI_STATE_BUSY);
+
+	__SPI_INT_TXE_Disable(spi_handler->Instance);
+	spi_handler->State = MYHAL_SPI_STATE_READY;
 }
 
 /**
- * Configure NSS pin through SW Slave Management when device in slave mode
+ * Close RXNE interrupt. Puts SPI in ready state.
+ * Called when no more RX Data to be ready
+ */
+static void __SPI_INT_RXNE_Close(spi_handler_t *spi_handler)
+{
+	// Wait for SPI to finish transmission
+	while (spi_handler->State == MYHAL_SPI_STATE_BUSY);
+
+	__SPI_INT_RXNE_Disable(spi_handler->Instance);
+	spi_handler->State = MYHAL_SPI_STATE_READY;
+}
+
+
+/**
+ * Initialize SPI device
  *
- * @param ssm - either 1 for SSM enabled, 0 for disabled
+ * @param	spi_handler - base address of SPI peripheral
  */
-static void myhal_spi_conf_nss_slave(SPI_TypeDef *SPIx, uint32_t ssm_enable)
+void SPI_Init (spi_handler_t *spi_handler)
 {
-	if (ssm_enable)
-	{
-		SPIx->CR1 |= SPI_REG_CR1_SSM;
-	}
-	else
-	{
-		SPIx->CR1 &= ~(SPI_REG_CR1_SSM);
-	}
+	__SPI_Conf_Mode(spi_handler->Instance, spi_handler->Init.Mode);
+	__SPI_Conf_Dir(spi_handler->Instance, spi_handler->Init.Direction);
+	__SPI_Conf_Endian(spi_handler->Instance, spi_handler->Init.FirstBit);
+	__SPI_Conf_DataSize(spi_handler->Instance, spi_handler->Init.DataSize);
+	__SPI_Conf_BaudRate(spi_handler->Instance, spi_handler->Init.Prescaler);
+	__SPI_Conf_Phase_Polarity(spi_handler->Instance, spi_handler->Init.CLKPhase, spi_handler->Init.CLKPolarity);
+	__SPI_Conf_SSM(spi_handler->Instance, spi_handler->Init.NSS);
+
+	__SPI_Clock_Init();
+	__SPI_GPIO_Init();
 }
 
-
-
-
 /**
- * Disables TXE interrupt, sets SPI ready
- */
-static void myhal_spi_tx_close_int(spi_handler_t *hspi)
-{
-	myhal_spi_disable_txe_int(hspi->Instance);
-	// If master mode and not busy, make ready
-	if ((hspi->Init.Mode) && (hspi->State != MYHAL_SPI_STATE_BUSY))
-	{
-		hspi->State = MYHAL_SPI_STATE_READY;
-	}
-	/**
-	 * Note that you don't want to manually set slave ready like this, only master.
-	 * This is b/c slave needs clock from master, so it needs to be ready'd in RXNE closer..? 33-4
-	 */
-}
-
-
-/**
- * Close RXNE interrupt, sets SPI to ready.
- * Called when RX Buffer is empty, no more data to be read
- */
-static void myhal_spi_rx_close_int(spi_handler_t *hspi)
-{
-	// idk what this line does, maybe waits until no longer busy
-	while (hspi->State == MYHAL_SPI_STATE_BUSY);
-	myhal_spi_disable_rxne_int(hspi->Instance);
-
-	hspi->State = MYHAL_SPI_STATE_READY;
-}
-
-
-
-
-
-
-/**
- * Master RX
+ * Transmit data across MOSI Line. Discards received data
  *
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param size - number of bytes of data to be sent
  */
-void myhal_spi_master_rx (spi_handler_t *spi_handler, uint8_t *rx_buf, uint32_t len)
+void SPI_Transmit(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint16_t size)
 {
-	uint16_t val;
-	/* master first has to TX dummy values to slave to produce clock before actual RX */
-	spi_handler->pTxBuffPtr = rx_buf;
-	spi_handler->TxXferCount = len;
-	spi_handler->TxXferSz = len;
+	if ( (spi_handler->Instance->SR & (SPI_REG_CR1_SPE)) == RESET)
+	{
+		__SPI_Enable(spi_handler->Instance);
+	}
 
-	/* actually begin the RXing */
-	spi_handler->pRxBuffPtr = rx_buf;
-	spi_handler->RxXferCount = len;
-	spi_handler->RxXferSz = len;
 
-	spi_handler->State = MYHAL_SPI_STATE_BUSY_RX;
+	spi_handler->pTxBuf = tx_data_buf;
+	spi_handler->TxCount = size;
 
-	myhal_spi_enable(spi_handler->Instance);
+	while (spi_handler->TxCount > 0)
+	{
+		// Wait for TX data to be sent
+		while ( (spi_handler->Instance->SR & SPI_REG_SR_TXE_FLAG) == RESET);
 
-	/* Read out/Empty the DR reg BEFORE enabling RXNE interrupt
-	 * Gotta do this b/c reading out DR clears RXNE, effectively "emptying"
-	 * the RX buf */
-	val = spi_handler->Instance->DR;
+		// Send data
+		spi_handler->Instance->DR = *spi_handler->pTxBuf;
+		spi_handler->pTxBuf++;
+		spi_handler->TxCount--;
 
-	myhal_spi_enable_txe_int(spi_handler->Instance);
-	myhal_spi_enable_rxne_int(spi_handler->Instance);
+		// Wait for transaction to finish
+		while( (spi_handler->Instance->SR & SPI_REG_SR_RXNE_FLAG) == RESET
+				&& (spi_handler->Instance->SR & SPI_REG_SR_BUSY_FLAG) != RESET);
 
+		// Read out and discard RX data to avoid Overrun Error
+		spi_handler->Instance->DR;
+	}
 }
 
 /**
- * Slave TX
+ * Receives data across MISO Line. Transmits dummy data
+ *
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be received
  */
-void myhal_spi_slave_tx (spi_handler_t *spi_handler, uint8_t *tx_buf, uint32_t len)
+void SPI_Receive(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint16_t size)
 {
+	if ( (spi_handler->Instance->SR & (SPI_REG_CR1_SPE)) == RESET)
+	{
+		__SPI_Enable(spi_handler->Instance);
+	}
 
-	// Slave needs Master to TX, so enable slave RX
-	// initialize TX
-	spi_handler->pTxBuffPtr = tx_buf;
-	spi_handler->TxXferCount = len;
-	spi_handler->TxXferSz = len;
+	spi_handler->pTxBuf = (uint8_t *)NULL;
+	spi_handler->TxCount = 0;
 
-	/* Dummy RX */
-	spi_handler->pRxBuffPtr = tx_buf;
-	spi_handler->RxXferCount = len;
-	spi_handler->RxXferSz = len;
+	spi_handler->pRxBuf = rx_data_buf;
+	spi_handler->RxCount = size;
+
+	while (spi_handler->RxCount > 0)
+	{
+		// Wait TX data to be sent
+		while ( (spi_handler->Instance->SR & SPI_REG_SR_TXE_FLAG) == RESET);
+
+		// Send dummy data
+		spi_handler->Instance->DR = *spi_handler->pTxBuf;
+
+		// Wait for RX data to be received
+		while( (spi_handler->Instance->SR & SPI_REG_SR_RXNE_FLAG) == RESET);
+
+		// Receive data
+		spi_handler->pRxBuf = (uint8_t*)&spi_handler->Instance->DR;
+		spi_handler->pRxBuf++;
+		spi_handler->RxCount--;
+
+		// Wait for transaction to finish
+		while ( (spi_handler->Instance->SR & SPI_REG_SR_BUSY_FLAG) != RESET);
+	}
+}
+
+/**
+ * Transmit data across MOSI Line and receive data across MISO Line
+ *
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be sent and received
+ */
+void SPI_TransmitReceive(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint8_t *rx_data_buf, uint16_t size)
+{
+	if ( (spi_handler->Instance->SR & (SPI_REG_CR1_SPE)) == RESET)
+	{
+		__SPI_Enable(spi_handler->Instance);
+	}
+
+	spi_handler->pTxBuf = tx_data_buf;
+	spi_handler->TxCount = size;
+
+	spi_handler->pRxBuf = rx_data_buf;
+	spi_handler->RxCount = size;
+
+	while (spi_handler->TxCount > 0)
+	{
+		// Wait TX data to be sent
+		while ( (spi_handler->Instance->SR & SPI_REG_SR_TXE_FLAG) == RESET);
+
+		// Send data
+		spi_handler->Instance->DR = *spi_handler->pTxBuf;
+		spi_handler->pTxBuf++;
+		spi_handler->TxCount--;
+
+		// Wait for RX data to be received
+		while( (spi_handler->Instance->SR & SPI_REG_SR_RXNE_FLAG) == RESET);
+
+		// Receive data
+		spi_handler->pRxBuf = (uint8_t*)&spi_handler->Instance->DR;
+		spi_handler->pRxBuf++;
+		spi_handler->RxCount--;
+
+		// Wait for transaction to finish
+		while ( (spi_handler->Instance->SR & SPI_REG_SR_BUSY_FLAG) != RESET);
+	}
+}
+
+/**
+ * Transmit data across MOSI Line in Interrupt Mode. Discards received data
+ *
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param size - number of bytes of data to be sent
+ */
+void SPI_Transmit_IT(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint32_t len)
+{
+	spi_handler->pTxBuf = tx_data_buf;
+	spi_handler->TxCount = len; // decrements as data transmitted
 
 	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
 
-	myhal_spi_enable(spi_handler->Instance);
 
-	/* both need to be enabled b/c whenever we do slave rx or tx, there's always
-	   some dummy transmission going on */
-	myhal_spi_enable_rxne_int(spi_handler->Instance);
-	myhal_spi_enable_txe_int(spi_handler->Instance);
+	// NVIC SPI1 Interrupt enable
+	if ( !(NVIC->ISER[1] & (1 << 3)) )
+	{
+		__NVIC_SPI1_Enable();
+	}
+
+	if ((spi_handler->Instance->CR1 & SPI_REG_CR1_SPE) == RESET)
+	{
+		__SPI_Enable(spi_handler->Instance);
+	}
+
+	/* This function gets called to TX the tx_data_buf right? So before we've TX'd anything, this function gets called
+	 * to kick off the process. Obviously the TX buf is going to be empty before we load anything into it. So once we
+	 * set the TXEIE bit, the TXE interrupt will be generated and it'll start sending out the tx_data_buf. */
+	__SPI_INT_TXE_Enable(spi_handler->Instance); // enables TX empty interrupt when TX done
+}
+
+
+/**
+ *  Receives data across MISO Line in Interrupt mode. Transmits dummy data
+ *
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be received
+ *
+ */
+void SPI_Receive_IT(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint32_t size)
+{
+	spi_handler->pTxBuf = (uint8_t *)NULL;
+	spi_handler->TxCount = 0;
+
+	spi_handler->pRxBuf = rx_data_buf;
+	spi_handler->RxCount = size;
+
+	// NVIC SPI1 Interrupt enable
+	if ( !(NVIC->ISER[1] & (1 << 3)) )
+	{
+		__NVIC_SPI1_Enable();
+	}
+
+	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
+
+	if ((spi_handler->Instance->CR1 & SPI_REG_CR1_SPE) == RESET)
+	{
+		__SPI_Enable(spi_handler->Instance);
+	}
+
+	// Empty the DR, resets RXNE so false RXNE not generated immediately
+	spi_handler->Instance->DR;
+
+	__SPI_INT_RXNE_Enable(spi_handler->Instance);
+
 }
 
 /**
- * Slave RX
+ * Transmit data across MOSI Line and receive data across MISO Line in Interrupt Mode
  *
- * @param rcv_buf : pointer to RX buf
- *
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be sent and received
  */
-void myhal_spi_slave_rx (spi_handler_t *spi_handler, uint8_t *rx_buf, uint32_t len)
+void SPI_TransmitReceive_IT(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint32_t size_tx, uint8_t *rx_data_buf, uint32_t size_rx)
 {
-	/* no dummy TX b/c slave receives first, slave TX is unnecessary */
 
-	spi_handler->pRxBuffPtr = rx_buf;
-	spi_handler->RxXferCount = len;
-	spi_handler->RxXferSz = len;
+	spi_handler->pTxBuf = tx_data_buf;
+	spi_handler->TxCount = size_tx;
+
+	spi_handler->pRxBuf = rx_data_buf;
+	spi_handler->RxCount = size_rx;
 
 	spi_handler->State = MYHAL_SPI_STATE_BUSY_RX;
 
-	myhal_spi_enable(spi_handler->Instance);
+	// NVIC SPI1 enable
+	if ( !(NVIC->ISER[1] & (1 << 3)) )
+	{
+		__NVIC_SPI1_Enable();
+	}
 
-	/* Slave RXNE interrupt goes when slave is full, don't need TXE interrupt b/c
-	 * slave isn't TXing here */
-	myhal_spi_enable_rxne_int(spi_handler->Instance);
-	//myhal_spi_enable_txe_int(spi_handler->Instance);
+	// Empty the DR, resets RXNE
+	spi_handler->Instance->DR;
+
+	if ( !(spi_handler->Instance->CR1 & SPI_REG_CR1_SPE) )
+	{
+		__SPI_Enable(spi_handler->Instance);
+	}
+
+	// Enable TXE and RXNE Interrupts
+	__SPI_INT_RXNE_Enable(spi_handler->Instance);
+	__SPI_INT_TXE_Enable(spi_handler->Instance);
 }
 
 /**
- * SPI IRQ Handler
- * @param	hspi : pointer to spi handler_t struc which contains config info for SPI
+ * Determines which SPI interrupt (TXE and/or RXNE) to handle
  */
-void myhal_spi_irq_handler(spi_handler_t *hspi)
+void SPI_INT_IRQ_Handler(spi_handler_t *spi_handler)
 {
-	uint32_t tmp1 = 0, tmp2 = 0;
+	uint32_t status_reg = spi_handler->Instance->SR;
+	uint32_t cr2_reg = spi_handler->Instance->CR2;
 
-	/* Check RX interrupt event */
-	// check RXNE flag set in SR
-	tmp1 = (hspi->Instance->SR & SPI_REG_SR_RXNE_FLAG);
-	// check RXNEIE enabled in CR2
-	tmp2 = (hspi->Instance->CR2 & SPI_REG_CR2_RXNEIE_ENABLE);
-	if ( (tmp1 != RESET) && (tmp2 != RESET) )
+	// Check RXNE Interrupt event
+	if ( (status_reg & SPI_REG_SR_RXNE_FLAG) && (cr2_reg & SPI_REG_CR2_RXNEIE_ENABLE) )
 	{
-		// RXNE flag is set, handle RX data
-		myhal_spi_handle_rx_int(hspi);
+		SPI_INT_RXNE_Handler(spi_handler);
 		return;
 	}
 
-	/* Check TX interrupt event */
-	// check TXE flag set in SR
-	tmp1 = (hspi->Instance->SR & SPI_REG_SR_TXE_FLAG);
-	// check TXEIE enabled in CR2
-	tmp2 = (hspi->Instance->CR2 & SPI_REG_CR2_TXEIE_ENABLE);
-	if ( (tmp1 != RESET) && (tmp2 != RESET) )
+	// Check TXE Interrupt event
+	if ( (status_reg & SPI_REG_SR_TXE_FLAG) && (cr2_reg & SPI_REG_CR2_TXEIE_ENABLE) )
 	{
-		// TXE flag set, handle TX data
-		myhal_spi_handle_tx_int(hspi);
+		SPI_INT_TXE_Handler(spi_handler);
 		return;
 	}
-
 }
 
 /**
  * Handles TXE interrupt, only gets called when TXEIE = 1, TXE = 1
- * Calls from within master or slave TX, so TX buffer address already in pTXBuffPtr
+ * Calls from within master or slave TX, so TX buffer address already in pTxBuf
  */
-void myhal_spi_handle_tx_int(spi_handler_t *hspi)
+void SPI_INT_TXE_Handler(spi_handler_t *spi_handler)
 {
 	// TX in 8-bit mode
-	if (hspi->Init.DataSize == SPI_8BIT_DF_ENABLE)
+	if (spi_handler->Init.DataSize == SPI_8BIT_DF_ENABLE)
 	{
-		// read TX Buf and increment forward in it to next byte
-		hspi->Instance->DR = (*hspi->pTxBuffPtr++);
-		// decrement count by 1 byte
-		hspi->TxXferCount--;
-	// TX in 16-bit mode
+		spi_handler->Instance->DR = (*spi_handler->pTxBuf++);
+		spi_handler->TxCount--;
 	}
+
+	// TX in 16-bit mode
 	else
 	{
-		hspi->Instance->DR = *( (uint16_t*)hspi->pTxBuffPtr );
-		hspi->pTxBuffPtr+=2;
-		hspi->TxXferCount-=2;
+		spi_handler->Instance->DR = *( (uint16_t*)spi_handler->pTxBuf ); // sends the first 2 bytes
+		spi_handler->pTxBuf+=2;
+		spi_handler->TxCount-=2;
 	}
+
 	// No more data to TX
-	if (hspi->TxXferCount == 0)
+	if (spi_handler->TxCount == 0)
 	{
-		myhal_spi_tx_close_int(hspi);
+		__SPI_INT_TXE_Close(spi_handler);
 	}
 }
 
-/**
- * Handles RXNE interrupt, only gets called when RXNEIE=1 AND RXNE=1
- * RXNE means there's stuff to be read in RX_buf, we have RXBuf in pRXBuffPtr, so just access
- * that way.
- */
-void myhal_spi_handle_rx_int(spi_handler_t *hspi)
-{
-	uint8_t val;
-	if (hspi->Init.DataSize == SPI_8BIT_DF_ENABLE)
-	{
-		// read DR value, put into
-		(*hspi->pRxBuffPtr++) = hspi->Instance->DR;
 
-		hspi->RxXferCount--;
+/**
+ * Handles RXNE interrupt, only gets called when RXNEIE=1 and RXNE=1
+ */
+void SPI_INT_RXNE_Handler(spi_handler_t *spi_handler)
+{
+	// RX 8-bit
+	if (spi_handler->Init.DataSize == SPI_8BIT_DF_ENABLE)
+	{
+		(*spi_handler->pRxBuf) = (uint8_t)spi_handler->Instance->DR;
+		spi_handler->pRxBuf++;
+		spi_handler->RxCount--;
 	}
+
+	// RX 16-bit
 	else
 	{
-		*(hspi->pRxBuffPtr) = hspi->Instance->DR;
-		hspi->pRxBuffPtr+=2;
-		hspi->RxXferCount-=2;
+		*(spi_handler->pRxBuf) = (uint16_t)spi_handler->Instance->DR;
+		spi_handler->pRxBuf+=2;
+		spi_handler->RxCount-=2;
 	}
-	// no more data to read
-	if (hspi->RxXferCount == 0)
+
+	// No more data to RX
+	if (spi_handler->RxCount == 0)
 	{
-		myhal_spi_rx_close_int(hspi);
+		__SPI_INT_RXNE_Close(spi_handler);
 	}
 }
 
