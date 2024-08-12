@@ -1,1 +1,1 @@
-Drivers for GPIO, SPI, UART, I2C for STM32F446RE
+Drivers for GPIO & SPI for STM32F446RE
