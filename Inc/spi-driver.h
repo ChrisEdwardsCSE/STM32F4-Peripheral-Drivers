@@ -2,23 +2,13 @@
  * spi-driver.h
  *
  *  Created on: Jul 25, 2024
- *      Author: ched
+ *      Author: Christopher Edwards
  */
 
 #ifndef INC_SPI_DRIVER_H_
 #define INC_SPI_DRIVER_H_
 
 #include "stm32f4xx_hal.h"
-///*
-// * spi-driver.h
-// *
-// *  Created on: Jul 23, 2024
-// *      Author: ched
-// */
-//#include "stm32f446xx.h"
-//
-//#ifndef STM32F4XX_HAL_DRIVER_INC_SPI_DRIVER_H_
-//#define STM32F4XX_HAL_DRIVER_INC_SPI_DRIVER_H_
 
 
 /* SPI_CR1 Bit definitions */
@@ -109,7 +99,7 @@ typedef enum
 /* SPI Configuration Struct */
 typedef struct
 {
-	uint32_t Mode;			// master or slave mode
+	uint32_t Mode;			// Master or Slave mode
 	uint32_t Direction;		// bidi or 2 line uni di
 	uint32_t DataSize;		// 8 bit or 16 bit data transmission
 	uint32_t CLKPolarity;
@@ -120,83 +110,89 @@ typedef struct
 } spi_init_t;
 
 /* SPI handler struct */
-typedef struct __spi_handler_t
+typedef struct
 {
 	SPI_TypeDef		*Instance;		// SPI peripheral base address -  the actual peripheral
 	spi_init_t		Init;			// SPI configuration params
-	uint8_t			*pTxBuffPtr;	// pointer to TX buffer; a global, in-system buffer
-	uint16_t		TxXferSz;		// TX transfer size
-	uint16_t		TxXferCount;	// TX transfer count
-	uint8_t			*pRxBuffPtr;	// pointer to RX buffer
-	uint16_t		RxXferSz;		// RX transfer size
-	uint16_t		RxXferCount;	// RX transfer counter
-	myhal_spi_state_t	State;		// state of peripheral, must be ready
+	uint8_t			*pTxBuf;	// Pointer to TX buffer; a global, in-system buffer
+	uint16_t		TxCount;	// TX transfer count
+	uint8_t			*pRxBuf;	// pointer to RX buffer
+	uint16_t		RxCount;	// RX transfer counter
+	myhal_spi_state_t	State;		// State of peripheral, must be ready
 } spi_handler_t;
 
-
-
-void init_gpio(void);
-
-void init_clocks(void);
-
-uint8_t spi_tx(spi_handler_t *spi_handler, uint8_t tx_data);
-uint8_t spi_rx(spi_handler_t *spi_handler);
 /**
  * Initialize SPI device
- * @param	spi_handler - base address of SPI peripheral
+ *
+ * @param spi_handler - Handler for SPI1.
  */
-void myhal_spi_init (spi_handler_t *spi_handler);
+void SPI_Init(spi_handler_t *spi_handler);
 
 /**
- * Master TX
+ * Transmit data across MOSI Line. Discards received data
  *
- * @param	buf : poitner to TX buf
- * @param	len : length of TX data
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param size - number of bytes of data to be sent
  */
-void myhal_spi_master_tx (spi_handler_t *spi_handler, uint8_t *tx_buf, uint32_t len);
+void SPI_Transmit(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint16_t size);
 
 /**
- * Slave TX
+ * Receives data across MISO Line. Transmits dummy data
  *
- *
- *
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be received
  */
-void myhal_spi_slave_tx (spi_handler_t *spi_handler, uint8_t *tx_buf, uint32_t len);
+void SPI_Receive(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint16_t size);
 
 /**
- * Slave RX
+ * Transmit data across MOSI Line and receive data across MISO Line
  *
- * @para rcv_buf : pointer to RX buf
- *
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be sent and received
  */
-void myhal_spi_slave_rx (spi_handler_t *spi_handler, uint8_t *rx_buf, uint32_t len);
+void SPI_TransmitReceive(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint8_t *rx_data_buf, uint16_t size);
 
 /**
- * Master RX
+ * Transmit data across MOSI Line in Interrupt Mode. Discards received data
  *
- *
- *
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param size - number of bytes of data to be sent
  */
-void myhal_spi_master_rx (spi_handler_t *spi_handler, uint8_t *rx_buf, uint32_t len);
+void SPI_Transmit_IT(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint32_t len);
 
 /**
- * SPI IRQ Handler
- * @param	hspi : pointer to spi handler_t struc which contains config info for SPI
+ *  Receives data across MISO Line in Interrupt mode. Transmits dummy data
+ *
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be received
+ *
  */
-void myhal_i2c_spi_irq_handler(spi_handler_t *hspi);
+void SPI_Receive_IT(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint32_t size);
+
+/**
+ * Transmit data across MOSI Line and receive data across MISO Line in Interrupt Mode
+ *
+ * @param tx_data_buf - pointer to buffer containing TX data
+ * @param rx_data_buf - pointer to buffer containing received RX data
+ * @param size - number of bytes of data to be sent and received
+ */
+void SPI_TransmitReceive_IT(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint32_t size_tx, uint8_t *rx_data_buf, uint32_t size_rx);
+
+/**
+ * Determines which SPI interrupt (TXE and/or RXNE) to handle
+ */
+void SPI_INT_IRQ_Handler(spi_handler_t *spi_handler);
 
 /**
  * Handles TXE interrupt, only gets called when TXEIE = 1, TXE = 1
- * Calls from within master or slave TX, so TX buffer address already in pTXBuffPtr
+ * Calls from within master or slave TX, so TX buffer address already in pTxBuf
  */
-void myhal_spi_handle_tx_int(spi_handler_t *hspi);
+void SPI_INT_TXE_Handler(spi_handler_t *spi_handler);
 
 /**
- * Handles RXNE interrupt, only gets called when RXNEIE=1 AND RXNE=1
- * RXNE means there's stuff to be read in RX_buf, we have RXBuf in pRXBuffPtr, so just access
- * that way.
+ * Handles RXNE interrupt, only gets called when RXNEIE=1 and RXNE=1
  */
-void myhal_spi_handle_rx_int(spi_handler_t *hspi);
-
+void SPI_INT_RXNE_Handler(spi_handler_t *spi_handler);
 
 #endif /* INC_SPI_DRIVER_H_ */
