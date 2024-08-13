@@ -2,15 +2,11 @@
  * stm32f446xx_gpio_driver.h
  *
  *  Created on: May 11, 2024
- *      Author: ched
+ *      Author: Christopher Edwards
  */
 
-#ifndef STM32F4XX_HAL_DRIVER_INC_STM32F446XX_GPIO_DRIVER_H_
-#define STM32F4XX_HAL_DRIVER_INC_STM32F446XX_GPIO_DRIVER_H_
-
-
-
-#endif /* STM32F4XX_HAL_DRIVER_INC_STM32F446XX_GPIO_DRIVER_H_ */
+#ifndef INC_GPIO_DRIVER_H_
+#define INC_GPIO_DRIVER_H_
 
 #include "stm32f446xx.h"
 
@@ -110,3 +106,5 @@ void myhal_gpio_enable_interrupt(uint16_t pin, IRQn_Type irq_no);
  * Clear the interrupt pending bit on pin if set
  */
 void myhal_gpio_clear_interrupt(uint16_t pin);
+
+#endif /* INC_GPIO_DRIVER_H_ */

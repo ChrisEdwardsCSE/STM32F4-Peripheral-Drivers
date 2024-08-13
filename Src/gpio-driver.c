@@ -1,11 +1,12 @@
 /*
- * stm32f446xx_gpio_driver.c
- *
+ * gpio-driver.c
+ * GPIO Driver for STM32F4 series.
+ * 
  *  Created on: May 11, 2024
- *      Author: ched
+ *      Author: Christopher Edwards
  */
 
-#include "stm32f446xx_gpio_driver.h"
+#include "gpio-driver.h"
 
 /*********** Helper functions ***********/
 /**
