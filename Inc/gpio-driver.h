@@ -58,53 +58,55 @@ typedef enum {
 
 /**
  * @Configure pull up or pull down resistors
- *
- *
- * @param pupd : pull up or pull down
+ * 
+ * @param pupd - pull up or pull down
  */
-void myhal_gpio_conf_pin_pupd(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t pupd);
+void GPIO_Conf_PUPD(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t pupd);
 
 
 /**
  * Configure alternate function for given pin
- *
- *
- * @param altfunc : the alternate function
+ * 
+ * @param altfunc - the alternate function
  */
-void myhal_gpio_conf_pin_af(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t altfunc);
+void GPIO_Conf_AltFunc(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t altfunc);
 
 /**
  * Read pin value
+ * 
+ * @return - value of the pin, 1 or 0
  */
-uint8_t myhal_gpio_read_pin(GPIO_TypeDef *GPIOx, uint16_t pin);
+uint8_t GPIO_Read_Pin(GPIO_TypeDef *GPIOx, uint16_t pin);
 
 /**
  * Write pin value
+ * 
+ * @param val - Value to write to pin
  */
-void myhal_gpio_write_pin(GPIO_TypeDef *GPIOx, uint16_t pin, uint8_t val);
+void GPIO_Write_Pin(GPIO_TypeDef *GPIOx, uint16_t pin, uint8_t val);
 
 /**
- * Initialize GPIO pin
+ * Initialize GPIO pin with given values
+ * 
+ * @param gpio_conf - GPIO initialization struct
  */
-void myhal_gpio_init(GPIO_TypeDef *GPIOx, gpio_conf_struct *gpio_conf);
+void GPIO_Init(GPIO_TypeDef *GPIOx, gpio_conf_struct *gpio_conf);
 
 /**
  * Configures interrupt for pin
- *
- * @param edge_sel : edge selection value
+ * @param edge_sel - edge selection value
  */
-void myhal_gpio_conf_interrupt(uint16_t pin, int_edge_sel_t edge_sel);
+void GPIO_Conf_Int(uint16_t pin, int_edge_sel_t edge_sel);
 
 /**
  * Enables interrupt for pin and IRQ number
- *
- * @param irq_no : irq number on NVIC to be enabled
+ * @param irq_no - irq number on NVIC to be enabled
  */
-void myhal_gpio_enable_interrupt(uint16_t pin, IRQn_Type irq_no);
+void GPIO_Int_Enable(uint16_t pin, IRQn_Type irq_no);
 
 /**
  * Clear the interrupt pending bit on pin if set
  */
-void myhal_gpio_clear_interrupt(uint16_t pin);
+void GPIO_Int_Clear(uint16_t pin);
 
 #endif /* INC_GPIO_DRIVER_H_ */
