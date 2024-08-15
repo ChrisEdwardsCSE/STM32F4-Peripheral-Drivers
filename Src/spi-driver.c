@@ -14,6 +14,7 @@ void __SPI_Clock_Init(void)
 {
 	RCC->AHB1ENR |= (1 << 0); // enable GPIOA
 	MYHAL_RCC_SPI1_CLK_ENABLE(); // enable SPI1
+//	RCC->APB2ENR |= (1 << 12); // enable SPI1
 }
 
 /**
@@ -172,6 +173,7 @@ static void __SPI_Conf_SSM(SPI_TypeDef *SPIx, uint8_t ssm_enable)
 		GPIOA->OSPEEDR |= (0b11 << 4 * 2); // High Speed
 		GPIOA->AFR[0] |= (0b0101 << 4 * 4); // Alt Func 5
 	}
+	SPI1->CR2 |= (1 << 2); // Set SSOE
 }
 
 /**
@@ -179,10 +181,7 @@ static void __SPI_Conf_SSM(SPI_TypeDef *SPIx, uint8_t ssm_enable)
  */
 static void __SPI_Enable(SPI_TypeDef *SPIx)
 {
-	if (!(SPIx->CR1 & SPI_REG_CR1_SPE))
-	{
-		SPIx->CR1 |= SPI_REG_CR1_SPE;
-	}
+	SPIx->CR1 |= SPI_REG_CR1_SPE;
 }
 
 /**
@@ -231,10 +230,10 @@ static void __SPI_INT_RXNE_Disable(SPI_TypeDef *SPIx)
  */
 static void __SPI_INT_TXE_Close(spi_handler_t *spi_handler)
 {
-	while (spi_handler->State == MYHAL_SPI_STATE_BUSY);
+	while (spi_handler->State == SPI_STATE_BUSY);
 
 	__SPI_INT_TXE_Disable(spi_handler->Instance);
-	spi_handler->State = MYHAL_SPI_STATE_READY;
+	spi_handler->State = SPI_STATE_READY;
 }
 
 /**
@@ -244,10 +243,10 @@ static void __SPI_INT_TXE_Close(spi_handler_t *spi_handler)
 static void __SPI_INT_RXNE_Close(spi_handler_t *spi_handler)
 {
 	// Wait for SPI to finish transmission
-	while (spi_handler->State == MYHAL_SPI_STATE_BUSY);
+	while (spi_handler->State == SPI_STATE_BUSY);
 
 	__SPI_INT_RXNE_Disable(spi_handler->Instance);
-	spi_handler->State = MYHAL_SPI_STATE_READY;
+	spi_handler->State = SPI_STATE_READY;
 }
 
 
@@ -258,6 +257,9 @@ static void __SPI_INT_RXNE_Close(spi_handler_t *spi_handler)
  */
 void SPI_Init(spi_handler_t *spi_handler)
 {
+	__SPI_GPIO_Init();
+	__SPI_Clock_Init();
+
 	__SPI_Conf_Mode(spi_handler->Instance, spi_handler->Init.Mode);
 	__SPI_Conf_Dir(spi_handler->Instance, spi_handler->Init.Direction);
 	__SPI_Conf_Endian(spi_handler->Instance, spi_handler->Init.FirstBit);
@@ -265,9 +267,6 @@ void SPI_Init(spi_handler_t *spi_handler)
 	__SPI_Conf_BaudRate(spi_handler->Instance, spi_handler->Init.Prescaler);
 	__SPI_Conf_Phase_Polarity(spi_handler->Instance, spi_handler->Init.CLKPhase, spi_handler->Init.CLKPolarity);
 	__SPI_Conf_SSM(spi_handler->Instance, spi_handler->Init.NSS);
-
-	__SPI_Clock_Init();
-	__SPI_GPIO_Init();
 }
 
 /**
@@ -280,7 +279,8 @@ void SPI_Transmit(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint16_t siz
 {
 	if ( (spi_handler->Instance->SR & (SPI_REG_CR1_SPE)) == RESET)
 	{
-		__SPI_Enable(spi_handler->Instance);
+//		__SPI_Enable(spi_handler->Instance);
+		SPI1->CR1 = 876U;
 	}
 
 
@@ -400,7 +400,7 @@ void SPI_Transmit_IT(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint32_t 
 	spi_handler->pTxBuf = tx_data_buf;
 	spi_handler->TxCount = len; // decrements as data transmitted
 
-	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
+	spi_handler->State = SPI_STATE_BUSY_TX;
 
 
 	// NVIC SPI1 Interrupt enable
@@ -442,7 +442,7 @@ void SPI_Receive_IT(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint32_t s
 		__NVIC_SPI1_Enable();
 	}
 
-	spi_handler->State = MYHAL_SPI_STATE_BUSY_TX;
+	spi_handler->State = SPI_STATE_BUSY_TX;
 
 	if ((spi_handler->Instance->CR1 & SPI_REG_CR1_SPE) == RESET)
 	{
@@ -472,7 +472,7 @@ void SPI_TransmitReceive_IT(spi_handler_t *spi_handler, uint8_t *tx_data_buf, ui
 	spi_handler->pRxBuf = rx_data_buf;
 	spi_handler->RxCount = size_rx;
 
-	spi_handler->State = MYHAL_SPI_STATE_BUSY_RX;
+	spi_handler->State = SPI_STATE_BUSY_RX;
 
 	// NVIC SPI1 enable
 	if ( !(NVIC->ISER[1] & (1 << 3)) )
