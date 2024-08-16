@@ -318,7 +318,6 @@ void SPI_Receive(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint16_t size
 	{
 		__SPI_Enable(spi_handler->Instance);
 	}
-
 	spi_handler->pTxBuf = (uint8_t *)NULL;
 	spi_handler->TxCount = 0;
 
@@ -337,7 +336,7 @@ void SPI_Receive(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint16_t size
 		while( (spi_handler->Instance->SR & SPI_REG_SR_RXNE_FLAG) == RESET);
 
 		// Receive data
-		spi_handler->pRxBuf = (uint8_t*)&spi_handler->Instance->DR;
+		*spi_handler->pRxBuf = *(uint8_t*)&spi_handler->Instance->DR;
 		spi_handler->pRxBuf++;
 		spi_handler->RxCount--;
 
@@ -346,6 +345,7 @@ void SPI_Receive(spi_handler_t *spi_handler, uint8_t *rx_data_buf, uint16_t size
 	}
 }
 
+extern done_flag;
 /**
  * Transmit data across MOSI Line and receive data across MISO Line
  *
@@ -380,13 +380,14 @@ void SPI_TransmitReceive(spi_handler_t *spi_handler, uint8_t *tx_data_buf, uint8
 		while( (spi_handler->Instance->SR & SPI_REG_SR_RXNE_FLAG) == RESET);
 
 		// Receive data
-		spi_handler->pRxBuf = (uint8_t*)&spi_handler->Instance->DR;
+		*spi_handler->pRxBuf = *(uint8_t*)&spi_handler->Instance->DR;
 		spi_handler->pRxBuf++;
 		spi_handler->RxCount--;
 
 		// Wait for transaction to finish
 		while ( (spi_handler->Instance->SR & SPI_REG_SR_BUSY_FLAG) != RESET);
 	}
+	done_flag = 1;
 }
 
 /**
@@ -553,7 +554,7 @@ void SPI_INT_RXNE_Handler(spi_handler_t *spi_handler)
 	// RX 8-bit
 	if (spi_handler->Init.DataSize == SPI_8BIT_DF_ENABLE)
 	{
-		(*spi_handler->pRxBuf) = (uint8_t)spi_handler->Instance->DR;
+		*spi_handler->pRxBuf = *(uint8_t *)&spi_handler->Instance->DR;
 		spi_handler->pRxBuf++;
 		spi_handler->RxCount--;
 	}
@@ -561,7 +562,7 @@ void SPI_INT_RXNE_Handler(spi_handler_t *spi_handler)
 	// RX 16-bit
 	else
 	{
-		*(spi_handler->pRxBuf) = (uint16_t)spi_handler->Instance->DR;
+		*spi_handler->pRxBuf = *(uint16_t *)&spi_handler->Instance->DR;
 		spi_handler->pRxBuf+=2;
 		spi_handler->RxCount-=2;
 	}
